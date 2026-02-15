@@ -6,7 +6,11 @@ import { toast } from "sonner";
 import { API_BASE_URL, SOCKET_URL } from "@/lib/api";
 import Navbar from "@/components/Navbar";
 
-const socket = io(SOCKET_URL);
+const socket = io(SOCKET_URL, {
+    autoConnect: true,
+    reconnection: true,
+    transports: ["websocket", "polling"]
+});
 
 const Chat = () => {
     const [messages, setMessages] = useState<any[]>([]);
@@ -66,17 +70,45 @@ const Chat = () => {
     useEffect(() => {
         if (!user) return;
 
-        socket.emit("join_room", room);
-        fetchHistory(room);
+        console.log("Setting up socket listeners for room:", room);
 
-        socket.on("receive_message", (message) => {
+        const onConnect = () => {
+            console.log("Socket connected!");
+            socket.emit("join_room", room);
+        };
+
+        const onDisconnect = () => {
+            console.log("Socket disconnected");
+        };
+
+        const onConnectError = (err: any) => {
+            console.error("Socket connection error:", err);
+            toast.error("Real-time connection failed. Retrying...");
+        };
+
+        const onReceiveMessage = (message: any) => {
+            console.log("Message received:", message);
             if (message.room === room) {
                 setMessages((prev) => [...prev, message]);
             }
-        });
+        };
+
+        socket.on("connect", onConnect);
+        socket.on("disconnect", onDisconnect);
+        socket.on("connect_error", onConnectError);
+        socket.on("receive_message", onReceiveMessage);
+
+        if (socket.connected) {
+            socket.emit("join_room", room);
+        }
+
+        fetchHistory(room);
 
         return () => {
-            socket.off("receive_message");
+            socket.off("connect", onConnect);
+            socket.off("disconnect", onDisconnect);
+            socket.off("connect_error", onConnectError);
+            socket.off("receive_message", onReceiveMessage);
         };
     }, [room, user]);
 
@@ -94,8 +126,20 @@ const Chat = () => {
 
     const handleSendMessage = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!input.trim() || !user) return;
+        if (!input.trim()) return;
+        if (!user) {
+            toast.error("You must be logged in to send messages");
+            return;
+        }
 
+        if (!socket.connected) {
+            console.log("Attempting to reconnect socket...");
+            socket.connect();
+            toast.error("Connection lost. Reconnecting...");
+            return;
+        }
+
+        console.log("Emitting message to room:", room, { content: input });
         socket.emit("send_message", {
             room,
             sender: user.id || user._id,
