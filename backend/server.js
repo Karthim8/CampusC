@@ -119,7 +119,16 @@ const transporter = nodemailer.createTransport({
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
-  }
+  },
+  // Force IPv4 because Render has issues with IPv6 for SMTP
+  connectionTimeout: 10000,
+  greetingTimeout: 10000,
+  socketTimeout: 10000
+});
+
+// Force IPv4 in the socket
+transporter.on('proxy_request', (info) => {
+  info.socket.connect({ family: 4 });
 });
 
 // Verify email configuration
